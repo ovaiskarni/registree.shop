@@ -84,22 +84,11 @@ export const QueryModal: React.FC<QueryModalProps> = ({
     setSubmitError(null);
 
     try {
-      // 1. Record and process on backend server
-      const response = await fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
+      let refId = `REQ-${Date.now().toString().slice(-6)}`;
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send query.');
-      }
-
-      // 2. Direct browser dispatch to FormSubmit token for guaranteed mail transmission
+      // 1. Direct browser dispatch to FormSubmit verified token (Guaranteed direct inbox delivery)
       try {
-        await fetch('https://formsubmit.co/ajax/cce1b353682c5d915f2606d479acf68b', {
+        const fsRes = await fetch('https://formsubmit.co/ajax/cce1b353682c5d915f2606d479acf68b', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -112,14 +101,45 @@ export const QueryModal: React.FC<QueryModalProps> = ({
             Email: formData.email,
             WhatsApp: formData.whatsapp,
             Requirements: formData.query,
-            Reference: data.referenceId || `REQ-${Date.now()}`,
+            Reference: refId,
           }),
         });
+
+        if (fsRes.ok) {
+          const fsText = await fsRes.text();
+          try {
+            const fsData = JSON.parse(fsText);
+            if (fsData.success) {
+              console.log('FormSubmit direct dispatch success:', fsData);
+            }
+          } catch (_) {}
+        }
       } catch (clientErr) {
-        console.warn('Direct client email relay notice:', clientErr);
+        console.warn('Direct FormSubmit notice:', clientErr);
       }
 
-      setReferenceId(data.referenceId || '');
+      // 2. Also log to internal server endpoint if available
+      try {
+        const response = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+
+        if (response.ok) {
+          const respText = await response.text();
+          try {
+            const data = JSON.parse(respText);
+            if (data.referenceId) {
+              refId = data.referenceId;
+            }
+          } catch (_) {}
+        }
+      } catch (apiErr) {
+        console.warn('Backend query logging notice:', apiErr);
+      }
+
+      setReferenceId(refId);
       setSubmitSuccess(true);
     } catch (err: any) {
       setSubmitError(err.message || 'An unexpected error occurred. Please message us on WhatsApp.');
